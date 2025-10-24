@@ -1,4 +1,4 @@
-name: Windows Build
+name: Windows Build (safe paths)
 
 on:
   push:
@@ -29,32 +29,107 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-      - name: Setup MSVC environment
+      - name: Show top-level repo layout (for debugging)
         shell: cmd
         run: |
-          echo Setting up MSVC environment...
-          call code\custom\bin\setup_cl_x64.bat
+          echo === Repo root ===
+          dir /b
+          echo.
+          echo === Find 'code' directories ===
+          for /f "delims=" %%i in ('dir /b /s /ad code 2^>nul') do echo %%i
 
-      - name: Build project
+      - name: Determine and cd to code directory, validate scripts
         shell: cmd
-        working-directory: 4cc\code
         run: |
-          echo Building project using %mode% mode with backend %backend%
-          if "%mode%"=="package" (
-            call bin\package.bat /D%backend%
+          REM Try to find where the 'code' directory is. This will check:
+          REM 1) ./code
+          REM 2) ./4cc/code
+          REM If none found, fail with helpful message.
+          setlocal enabledelayedexpansion
+          set CODE_DIR=
+          if exist code (
+            set CODE_DIR=code
+          ) else if exist 4cc\code (
+            set CODE_DIR=4cc\code
           ) else (
-            call bin\build.bat /D%backend%
+            for /f "delims=" %%p in ('dir /b /s /ad code 2^>nul') do (
+              set CODE_DIR=%%p
+              goto :found
+            )
+            echo ERROR: could not find a 'code' directory in the repository root or under a '4cc' folder.
+            echo Please check where your code folder lives relative to the repository root.
+            exit /b 2
           )
+          :found
+          echo Using code directory: "!CODE_DIR!"
+          REM Change directory for the remainder of this step's script
+          pushd "!CODE_DIR!"
+
+          REM Validate setup script
+          if not exist custom\bin\setup_cl_x64.bat (
+            echo WARNING: setup_cl_x64.bat not found at custom\bin\setup_cl_x64.bat
+            echo Continuing — build scripts may still work if they set up their own environment.
+          ) else (
+            echo Found setup_cl_x64.bat
+            echo Calling setup_cl_x64.bat...
+            call custom\bin\setup_cl_x64.bat
+          )
+
+          REM Validate build/package scripts exist
+          if /I "%MODE%"=="package" (
+            if not exist bin\package.bat (
+              echo ERROR: bin\package.bat not found in "!CODE_DIR!\bin"
+              popd
+              exit /b 3
+            )
+            echo Will run: bin\package.bat /D%BACKEND%
+            call bin\package.bat /D%BACKEND%
+          ) else (
+            if not exist bin\build.bat (
+              echo ERROR: bin\build.bat not found in "!CODE_DIR!\bin"
+              popd
+              exit /b 4
+            )
+            echo Will run: bin\build.bat /D%BACKEND%
+            call bin\build.bat /D%BACKEND%
+          )
+          REM Return to original directory
+          popd
         env:
-          backend: ${{ matrix.backend }}
-          mode: ${{ matrix.mode }}
+          BACKEND: ${{ matrix.backend }}
+          MODE: ${{ matrix.mode }}
+
+      - name: List output directories (if any)
+        shell: cmd
+        run: |
+          REM List possible output folders relative to the repo root or code dir
+          if exist 4cc\code\build (
+            echo === 4cc\code\build ===
+            dir /s 4cc\code\build
+          )
+          if exist 4cc\code\distributions (
+            echo === 4cc\code\distributions ===
+            dir /s 4cc\code\distributions
+          )
+          if exist code\build (
+            echo === code\build ===
+            dir /s code\build
+          )
+          if exist code\distributions (
+            echo === code\distributions ===
+            dir /s code\distributions
+          )
 
       - name: Upload artifacts
-        if: success()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.backend }}-${{ matrix.mode }}-artifacts
           path: |
+            code/build/**
+            code/distributions/**
             4cc/code/build/**
             4cc/code/distributions/**
