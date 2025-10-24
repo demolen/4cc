@@ -1,4 +1,4 @@
-name: Windows Build (safe paths)
+name: Windows Build (auto-detect code path)
 
 on:
   push:
@@ -12,19 +12,18 @@ on:
         required: false
         default: "WIN32_OPENGL"
       mode:
-        description: "Build type (package or build)"
+        description: "Build mode (package or build)"
         required: false
         default: "package"
 
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 120
 
-    strategy:
-      fail-fast: false
-      matrix:
-        backend: [ "WIN32_OPENGL", "WIN32_DX11" ]
-        mode: [ "package", "build" ]
+    env:
+      BACKEND: ${{ github.event.inputs.backend || 'WIN32_OPENGL' }}
+      MODE: ${{ github.event.inputs.mode || 'package' }}
 
     steps:
       - name: Checkout repository
@@ -32,103 +31,111 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Show top-level repo layout (for debugging)
+      - name: Show repo root (debug)
         shell: cmd
         run: |
-          echo === Repo root ===
+          echo === Repo root (should be $GITHUB_WORKSPACE) ===
           dir /b
           echo.
-          echo === Find 'code' directories ===
-          for /f "delims=" %%i in ('dir /b /s /ad code 2^>nul') do echo %%i
 
-      - name: Determine and cd to code directory, validate scripts
+      - name: Find code directory
+        id: find-code
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const workspace = process.env.GITHUB_WORKSPACE;
+            const tryPaths = ['code', path.join('4cc','code')];
+
+            for (const p of tryPaths) {
+              const full = path.join(workspace, p);
+              if (fs.existsSync(full) && fs.statSync(full).isDirectory()) {
+                core.setOutput('code-path', p.replace(/\\/g, '/'));
+                console.log('Found code at', p);
+                return;
+              }
+            }
+
+            // quick recursive search (3 levels) for a 'code' dir
+            function findCode(dir, depth) {
+              if (depth < 0) return null;
+              try {
+                const entries = fs.readdirSync(dir, { withFileTypes: true });
+                for (const e of entries) {
+                  if (e.isDirectory() && e.name.toLowerCase() === 'code') return path.relative(workspace, path.join(dir, e.name)).replace(/\\/g, '/');
+                }
+                for (const e of entries) {
+                  if (e.isDirectory()) {
+                    const found = findCode(path.join(dir, e.name), depth - 1);
+                    if (found) return found;
+                  }
+                }
+              } catch (err) {}
+              return null;
+            }
+            const found = findCode(workspace, 3);
+            if (found) {
+              core.setOutput('code-path', found);
+              console.log('Found code at', found);
+              return;
+            }
+
+            throw new Error("Could not find a 'code' directory in the repository (tried ./code, ./4cc/code and a recursive search). Please check repo layout.");
+
+      - name: Print detected code-path
         shell: cmd
         run: |
-          REM Try to find where the 'code' directory is. This will check:
-          REM 1) ./code
-          REM 2) ./4cc/code
-          REM If none found, fail with helpful message.
-          setlocal enabledelayedexpansion
-          set CODE_DIR=
-          if exist code (
-            set CODE_DIR=code
-          ) else if exist 4cc\code (
-            set CODE_DIR=4cc\code
-          ) else (
-            for /f "delims=" %%p in ('dir /b /s /ad code 2^>nul') do (
-              set CODE_DIR=%%p
-              goto :found
-            )
-            echo ERROR: could not find a 'code' directory in the repository root or under a '4cc' folder.
-            echo Please check where your code folder lives relative to the repository root.
-            exit /b 2
-          )
-          :found
-          echo Using code directory: "!CODE_DIR!"
-          REM Change directory for the remainder of this step's script
-          pushd "!CODE_DIR!"
+          echo DETECTED_CODE_PATH=${{ steps.find-code.outputs.code-path }}
+          dir ${{ steps.find-code.outputs.code-path }}
 
-          REM Validate setup script
-          if not exist custom\bin\setup_cl_x64.bat (
-            echo WARNING: setup_cl_x64.bat not found at custom\bin\setup_cl_x64.bat
-            echo Continuing — build scripts may still work if they set up their own environment.
-          ) else (
-            echo Found setup_cl_x64.bat
-            echo Calling setup_cl_x64.bat...
+      - name: Setup MSVC (if present) and run build
+        shell: cmd
+        working-directory: ${{ steps.find-code.outputs.code-path }}
+        run: |
+          echo Running in %CD%
+          echo BACKEND=%BACKEND% MODE=%MODE%
+
+          if exist custom\bin\setup_cl_x64.bat (
+            echo Found setup_cl_x64.bat - calling it now...
             call custom\bin\setup_cl_x64.bat
+          ) else (
+            echo WARNING: custom\bin\setup_cl_x64.bat not found - continuing but build may fail.
           )
 
-          REM Validate build/package scripts exist
           if /I "%MODE%"=="package" (
             if not exist bin\package.bat (
-              echo ERROR: bin\package.bat not found in "!CODE_DIR!\bin"
-              popd
+              echo ERROR: bin\package.bat not found in %CD%\bin
               exit /b 3
             )
-            echo Will run: bin\package.bat /D%BACKEND%
+            echo Calling: bin\package.bat /D%BACKEND%
             call bin\package.bat /D%BACKEND%
           ) else (
             if not exist bin\build.bat (
-              echo ERROR: bin\build.bat not found in "!CODE_DIR!\bin"
-              popd
+              echo ERROR: bin\build.bat not found in %CD%\bin
               exit /b 4
             )
-            echo Will run: bin\build.bat /D%BACKEND%
+            echo Calling: bin\build.bat /D%BACKEND%
             call bin\build.bat /D%BACKEND%
           )
-          REM Return to original directory
-          popd
-        env:
-          BACKEND: ${{ matrix.backend }}
-          MODE: ${{ matrix.mode }}
 
-      - name: List output directories (if any)
+      - name: List outputs (helpful for debugging)
         shell: cmd
         run: |
-          REM List possible output folders relative to the repo root or code dir
-          if exist 4cc\code\build (
-            echo === 4cc\code\build ===
-            dir /s 4cc\code\build
-          )
-          if exist 4cc\code\distributions (
-            echo === 4cc\code\distributions ===
-            dir /s 4cc\code\distributions
-          )
-          if exist code\build (
-            echo === code\build ===
-            dir /s code\build
-          )
-          if exist code\distributions (
-            echo === code\distributions ===
-            dir /s code\distributions
-          )
+          echo === possible outputs (relative to repo root) ===
+          if exist code\build ( echo code\build found & dir /s code\build ) else echo code\build not found
+          if exist code\distributions ( echo code\distributions found & dir /s code\distributions ) else echo code\distributions not found
+          if exist 4cc\code\build ( echo 4cc\code\build found & dir /s 4cc\code\build ) else echo 4cc\code\build not found
+          if exist 4cc\code\distributions ( echo 4cc\code\distributions found & dir /s 4cc\code\distributions ) else echo 4cc\code\distributions not found
 
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.backend }}-${{ matrix.mode }}-artifacts
+          name: ${{ env.BACKEND }}-${{ env.MODE }}-artifacts
           path: |
+            ${{ steps.find-code.outputs.code-path }}/build/**
+            ${{ steps.find-code.outputs.code-path }}/distributions/**
             code/build/**
             code/distributions/**
             4cc/code/build/**
