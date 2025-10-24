@@ -1,4 +1,4 @@
-name: Windows Build (auto-detect code path)
+name: Windows Build (single-run or sequential backends)
 
 on:
   push:
@@ -8,11 +8,11 @@ on:
   workflow_dispatch:
     inputs:
       backend:
-        description: "Graphics backend (WIN32_OPENGL or WIN32_DX11)"
+        description: "Optional single backend to run (WIN32_OPENGL or WIN32_DX11). Leave empty to run both sequentially."
         required: false
-        default: "WIN32_OPENGL"
+        default: ""
       mode:
-        description: "Build mode (package or build)"
+        description: "Build mode (package or build). If empty, runs 'package' by default."
         required: false
         default: "package"
 
@@ -22,8 +22,8 @@ jobs:
     timeout-minutes: 120
 
     env:
-      BACKEND: ${{ github.event.inputs.backend || 'WIN32_OPENGL' }}
-      MODE: ${{ github.event.inputs.mode || 'package' }}
+      DEFAULT_MODE: ${{ github.event.inputs.mode || 'package' }}
+      REQUESTED_BACKEND: ${{ github.event.inputs.backend || '' }}
 
     steps:
       - name: Checkout repository
@@ -31,112 +31,144 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Show repo root (debug)
-        shell: cmd
+      - name: Detect code directory
+        id: detect_code
+        shell: pwsh
         run: |
-          echo === Repo root (should be $GITHUB_WORKSPACE) ===
-          dir /b
-          echo.
+          $ws = $env:GITHUB_WORKSPACE
+          $candidates = @("$ws\code", "$ws\4cc\code")
+          $found = $null
+          foreach ($p in $candidates) {
+            if (Test-Path $p -PathType Container) { $found = $p; break }
+          }
+          if (-not $found) {
+            # try quick recursive search one level deep
+            $found = Get-ChildItem -Path $ws -Directory -Recurse -Depth 3 -ErrorAction SilentlyContinue |
+                     Where-Object { $_.Name -ieq 'code' } | Select-Object -First 1
+            if ($found) { $found = $found.FullName } else { $found = $null }
+          }
+          if (-not $found) { throw "Could not find a 'code' directory (tried ./code and ./4cc/code and a shallow search). Please check repo layout." }
+          $rel = (Resolve-Path -Path $found).Path.Replace($ws + "\", "")
+          Write-Host "Detected code directory: $found (relative: $rel)"
+          # expose both absolute and relative
+          echo "code_abs=$found" >> $env:GITHUB_OUTPUT
+          echo "code_rel=$rel" >> $env:GITHUB_OUTPUT
 
-      - name: Find code directory
-        id: find-code
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const path = require('path');
-            const workspace = process.env.GITHUB_WORKSPACE;
-            const tryPaths = ['code', path.join('4cc','code')];
+      - name: Prepare artifact folder
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:GITHUB_WORKSPACE 'ci-artifacts'
+          if (Test-Path $out) { Remove-Item -Recurse -Force $out }
+          New-Item -ItemType Directory -Path $out | Out-Null
+          echo "ARTIFACT_ROOT=$out"
+        env:
+          GITHUB_WORKSPACE: ${{ github.workspace }}
 
-            for (const p of tryPaths) {
-              const full = path.join(workspace, p);
-              if (fs.existsSync(full) && fs.statSync(full).isDirectory()) {
-                core.setOutput('code-path', p.replace(/\\/g, '/'));
-                console.log('Found code at', p);
-                return;
+      - name: Build (single or both backends sequentially) — capture logs & outputs
+        shell: pwsh
+        env:
+          GITHUB_WORKSPACE: ${{ github.workspace }}
+          MODE_INPUT: ${{ env.DEFAULT_MODE }}
+          REQUESTED_BACKEND: ${{ env.REQUESTED_BACKEND }}
+        run: |
+          $codeAbs = "${{ steps.detect_code.outputs.code_abs }}"
+          if (-not (Test-Path $codeAbs)) { throw "Code directory not found at $codeAbs" }
+          Push-Location $codeAbs
+
+          $m = if ($env:MODE_INPUT -and $env:MODE_INPUT.Trim() -ne '') { $env:MODE_INPUT.Trim() } else { 'package' }
+          $requested = if ($env:REQUESTED_BACKEND -and $env:REQUESTED_BACKEND.Trim() -ne '') { $env:REQUESTED_BACKEND.Trim() } else { '' }
+
+          $allBackends = @('WIN32_OPENGL','WIN32_DX11')
+          if ($requested) {
+            if ($allBackends -notcontains $requested) { throw "Requested backend '$requested' is not a supported value. Supported: $($allBackends -join ', ')" }
+            $backendsToRun = @($requested)
+          } else {
+            $backendsToRun = $allBackends
+          }
+
+          $artifactRoot = Join-Path $env:GITHUB_WORKSPACE 'ci-artifacts'
+          foreach ($backend in $backendsToRun) {
+            $label = "$backend-$m"
+            Write-Host "=== Building $label in $codeAbs ==="
+
+            # prepare log path
+            $logPath = Join-Path $artifactRoot ("buildlog-$label.txt")
+            if (Test-Path $logPath) { Remove-Item $logPath -Force }
+
+            # attempt setup script
+            if (Test-Path "custom\bin\setup_cl_x64.bat") {
+              Write-Host "Calling custom\bin\setup_cl_x64.bat..."
+              cmd.exe /c "call custom\bin\setup_cl_x64.bat > \"$logPath\" 2>&1"
+              Write-Host "Setup output written to $logPath"
+            } else {
+              Add-Content -Path $logPath -Value "WARNING: custom\bin\setup_cl_x64.bat not found. Continuing without explicit MSVC setup."
+              Write-Host "WARNING: setup_cl_x64.bat not found; continuing."
+            }
+
+            # choose script
+            if ($m -ieq 'package') {
+              if (-not (Test-Path "bin\package.bat")) {
+                Add-Content -Path $logPath -Value "ERROR: bin\package.bat not found in $codeAbs\bin"
+                Write-Host "ERROR: package.bat missing; see $logPath"
+                continue
+              }
+              Write-Host "Running: bin\\package.bat /D$backend"
+              cmd.exe /c "call bin\package.bat /D$backend >> \"$logPath\" 2>&1" 
+            } else {
+              if (-not (Test-Path "bin\build.bat")) {
+                Add-Content -Path $logPath -Value "ERROR: bin\build.bat not found in $codeAbs\bin"
+                Write-Host "ERROR: build.bat missing; see $logPath"
+                continue
+              }
+              Write-Host "Running: bin\\build.bat /D$backend"
+              cmd.exe /c "call bin\build.bat /D$backend >> \"$logPath\" 2>&1"
+            }
+
+            # copy any produced outputs into artifact root under label subfolder
+            $labelDir = Join-Path $artifactRoot $label
+            New-Item -ItemType Directory -Path $labelDir -Force | Out-Null
+
+            # candidate output locations
+            $candidates = @("build","distributions","out","dist")
+            foreach ($c in $candidates) {
+              if (Test-Path $c) {
+                Copy-Item -Path $c -Destination $labelDir -Recurse -Force -ErrorAction SilentlyContinue
               }
             }
+            # always copy the build log
+            Copy-Item -Path $logPath -Destination $labelDir -Force -ErrorAction SilentlyContinue
 
-            // quick recursive search (3 levels) for a 'code' dir
-            function findCode(dir, depth) {
-              if (depth < 0) return null;
-              try {
-                const entries = fs.readdirSync(dir, { withFileTypes: true });
-                for (const e of entries) {
-                  if (e.isDirectory() && e.name.toLowerCase() === 'code') return path.relative(workspace, path.join(dir, e.name)).replace(/\\/g, '/');
-                }
-                for (const e of entries) {
-                  if (e.isDirectory()) {
-                    const found = findCode(path.join(dir, e.name), depth - 1);
-                    if (found) return found;
-                  }
-                }
-              } catch (err) {}
-              return null;
-            }
-            const found = findCode(workspace, 3);
-            if (found) {
-              core.setOutput('code-path', found);
-              console.log('Found code at', found);
-              return;
-            }
+            Write-Host "Finished step for $label; artifacts (if any) copied to $labelDir"
+          }
 
-            throw new Error("Could not find a 'code' directory in the repository (tried ./code, ./4cc/code and a recursive search). Please check repo layout.");
+          Pop-Location
 
-      - name: Print detected code-path
-        shell: cmd
+      - name: Show artifact folder contents (debug)
+        shell: pwsh
         run: |
-          echo DETECTED_CODE_PATH=${{ steps.find-code.outputs.code-path }}
-          dir ${{ steps.find-code.outputs.code-path }}
+          $root = Join-Path $env:GITHUB_WORKSPACE 'ci-artifacts'
+          if (-not (Test-Path $root)) { Write-Host "No ci-artifacts folder found." ; exit 0 }
+          Write-Host "Contents of ci-artifacts:"
+          Get-ChildItem -Path $root -Recurse | ForEach-Object { Write-Host $_.FullName }
 
-      - name: Setup MSVC (if present) and run build
-        shell: cmd
-        working-directory: ${{ steps.find-code.outputs.code-path }}
+      - name: Create single zip of artifacts (if any)
+        shell: pwsh
         run: |
-          echo Running in %CD%
-          echo BACKEND=%BACKEND% MODE=%MODE%
+          $root = Join-Path $env:GITHUB_WORKSPACE 'ci-artifacts'
+          $zip = Join-Path $env:RUNNER_TEMP 'ci-artifacts.zip'
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          if (Test-Path $root) {
+            Compress-Archive -Path (Join-Path $root '*') -DestinationPath $zip -Force
+            Write-Host "Created $zip"
+            echo "artifact_zip=$zip" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Host "No artifacts to zip."
+            echo "artifact_zip=" >> $env:GITHUB_OUTPUT
+          }
 
-          if exist custom\bin\setup_cl_x64.bat (
-            echo Found setup_cl_x64.bat - calling it now...
-            call custom\bin\setup_cl_x64.bat
-          ) else (
-            echo WARNING: custom\bin\setup_cl_x64.bat not found - continuing but build may fail.
-          )
-
-          if /I "%MODE%"=="package" (
-            if not exist bin\package.bat (
-              echo ERROR: bin\package.bat not found in %CD%\bin
-              exit /b 3
-            )
-            echo Calling: bin\package.bat /D%BACKEND%
-            call bin\package.bat /D%BACKEND%
-          ) else (
-            if not exist bin\build.bat (
-              echo ERROR: bin\build.bat not found in %CD%\bin
-              exit /b 4
-            )
-            echo Calling: bin\build.bat /D%BACKEND%
-            call bin\build.bat /D%BACKEND%
-          )
-
-      - name: List outputs (helpful for debugging)
-        shell: cmd
-        run: |
-          echo === possible outputs (relative to repo root) ===
-          if exist code\build ( echo code\build found & dir /s code\build ) else echo code\build not found
-          if exist code\distributions ( echo code\distributions found & dir /s code\distributions ) else echo code\distributions not found
-          if exist 4cc\code\build ( echo 4cc\code\build found & dir /s 4cc\code\build ) else echo 4cc\code\build not found
-          if exist 4cc\code\distributions ( echo 4cc\code\distributions found & dir /s 4cc\code\distributions ) else echo 4cc\code\distributions not found
-
-      - name: Upload artifacts
+      - name: Upload artifacts (zip)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.BACKEND }}-${{ env.MODE }}-artifacts
-          path: |
-            ${{ steps.find-code.outputs.code-path }}/build/**
-            ${{ steps.find-code.outputs.code-path }}/distributions/**
-            code/build/**
-            code/distributions/**
-            4cc/code/build/**
-            4cc/code/distributions/**
+          name: ci-artifacts
+          path: ${{ steps.detect_code.outputs.code_abs }}/../ci-artifacts/**  # safe: upload found artifact subfolders
