@@ -1,0 +1,55 @@
+name: Windows Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      backend:
+        description: "Graphics backend (WIN32_OPENGL or WIN32_DX11)"
+        required: false
+        default: "WIN32_OPENGL"
+      build_type:
+        description: "Build type (package or build)"
+        required: false
+        default: "package"
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    env:
+      BACKEND: ${{ github.event.inputs.backend || 'WIN32_OPENGL' }}
+      BUILD_TYPE: ${{ github.event.inputs.build_type || 'package' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC environment
+        shell: cmd
+        run: |
+          echo Setting up MSVC environment...
+          call code\custom\bin\setup_cl_x64.bat
+
+      - name: Build project
+        shell: cmd
+        run: |
+          echo Building project using %BUILD_TYPE% mode with backend %BACKEND%
+          cd 4cc\code
+          if "%BUILD_TYPE%"=="package" (
+            call bin\package.bat /D%BACKEND%
+          ) else (
+            call bin\build.bat /D%BACKEND%
+          )
+
+      - name: Upload artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: |
+            4cc/code/build/**
+            4cc/code/distributions/**
