@@ -1,4 +1,4 @@
-name: Windows Build (matrix)
+name: Windows Build
 
 on:
   push:
@@ -8,90 +8,53 @@ on:
   workflow_dispatch:
     inputs:
       backend:
-        description: "Optional single backend to run (WIN32_OPENGL or WIN32_DX11). Leave empty to run matrix."
+        description: "Graphics backend (WIN32_OPENGL or WIN32_DX11)"
         required: false
-        default: ""
+        default: "WIN32_OPENGL"
       mode:
-        description: "Optional single mode to run (package or build). Leave empty to run both."
+        description: "Build type (package or build)"
         required: false
-        default: ""
-
-concurrency:
-  group: windows-build-${{ github.ref }}
-  cancel-in-progress: true
+        default: "package"
 
 jobs:
   build:
-    # if user provided single backend/mode via workflow_dispatch, use those; otherwise use matrix
+    runs-on: windows-latest
+
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(
-          inputsMatrix(
-            github.event.inputs.backend,
-            github.event.inputs.mode
-          )
-        ) }}
-    runs-on: windows-latest
-    timeout-minutes: 120
+        backend: [ "WIN32_OPENGL", "WIN32_DX11" ]
+        mode: [ "package", "build" ]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          # single shallow fetch is usually fine for CI; increase if you need history
-          fetch-depth: 1
-
-      - name: Print job info
-        shell: cmd
-        run: |
-          echo RUNNING: backend=%BACKEND% mode=%MODE%
-        env:
-          BACKEND: ${{ matrix.backend }}
-          MODE: ${{ matrix.mode }}
 
       - name: Setup MSVC environment
         shell: cmd
         run: |
-          REM Ensure we are using the provided setup script to configure cl/linker environment
+          echo Setting up MSVC environment...
           call code\custom\bin\setup_cl_x64.bat
 
-      - name: Build or Package
+      - name: Build project
         shell: cmd
         working-directory: 4cc\code
         run: |
-          echo Building for backend: %BACKEND% mode: %MODE%
-          if /I "%MODE%"=="package" (
-            call bin\package.bat /D%BACKEND%
+          echo Building project using %mode% mode with backend %backend%
+          if "%mode%"=="package" (
+            call bin\package.bat /D%backend%
           ) else (
-            call bin\build.bat /D%BACKEND%
+            call bin\build.bat /D%backend%
           )
         env:
-          BACKEND: ${{ matrix.backend }}
-          MODE: ${{ matrix.mode }}
-
-      - name: Collect build outputs (list)
-        shell: cmd
-        run: |
-          echo "=== build dir listing ==="
-          if exist build (
-            dir /s build || echo "no build dir"
-          ) else (
-            echo "no build dir"
-          )
-          echo "=== distributions dir listing ==="
-          if exist distributions (
-            dir /s distributions || echo "no distributions dir"
-          ) else (
-            echo "no distributions dir"
-          )
-        working-directory: 4cc\code
+          backend: ${{ matrix.backend }}
+          mode: ${{ matrix.mode }}
 
       - name: Upload artifacts
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: build-${{ matrix.backend }}-${{ matrix.mode }}
+          name: ${{ matrix.backend }}-${{ matrix.mode }}-artifacts
           path: |
             4cc/code/build/**
             4cc/code/distributions/**
