@@ -20,33 +20,44 @@ jobs:
   build-windows:
     runs-on: windows-latest
     
+    strategy:
+      matrix:
+        backend: ${{ github.event.inputs.backend && fromJSON(format('["{0}"]', github.event.inputs.backend)) || fromJSON('["WIN32_OPENGL", "WIN32_DX11"]') }}
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
       
-      - name: Setup MSVC
-        uses: microsoft/setup-msbuild@v2
+      - name: Setup MSVC Developer Command Prompt
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
       
-      - name: Setup MSVC toolchain
+      - name: Verify MSVC setup
         shell: cmd
         run: |
-          cd code\custom\bin
-          call setup_cl_x64.bat
+          where cl
+          cl
       
-      - name: Build distribution
+      - name: Build distribution package
         shell: cmd
         working-directory: code
         run: |
-          if "${{ github.event.inputs.backend }}" == "WIN32_DX11" (
-            call bin\package.bat /DWIN32_DX11
-          ) else (
-            call bin\package.bat /DWIN32_OPENGL
-          )
+          call bin\package.bat /D${{ matrix.backend }}
       
-      - name: Upload artifacts
+      - name: Verify distribution was created
+        shell: pwsh
+        run: |
+          if (!(Test-Path "distributions")) {
+            Write-Error "Distributions directory not found!"
+            exit 1
+          }
+          Get-ChildItem distributions -Recurse
+      
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: 4cc-windows-${{ github.event.inputs.backend || 'WIN32_OPENGL' }}
-          path: distributions/*
+          name: 4cc-windows-${{ matrix.backend }}
+          path: distributions/
           if-no-files-found: error
           retention-days: 30
