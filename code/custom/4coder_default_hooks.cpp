@@ -641,6 +641,7 @@ parse_async__inner(Async_Context *actx, Buffer_ID buffer_id,
     
     Generic_Parse_State state = {};
     generic_parse_init(app, &arena, contents, tokens, &state);
+    state.do_cpp_parse = true;
     
     b32 canceled = false;
     
@@ -1107,4 +1108,3 @@ set_all_default_hooks(Application_Links *app){
 }
 
 // BOTTOM
-

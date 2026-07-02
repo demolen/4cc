@@ -374,6 +374,57 @@ global_const u8 kVK_Menu = 0x6E;
 
 global Key_Code keycode_lookup_table[255] = {};
 
+function Key_Code
+mac_keycode_from_layout_character(unichar c){
+    Key_Code result = 0;
+    
+    if ('a' <= c && c <= 'z'){
+        result = KeyCode_A + (c - 'a');
+    }
+    else if ('A' <= c && c <= 'Z'){
+        result = KeyCode_A + (c - 'A');
+    }
+    else if ('0' <= c && c <= '9'){
+        result = KeyCode_0 + (c - '0');
+    }
+    else{
+        switch (c){
+            case ' ': result = KeyCode_Space; break;
+            case '`': result = KeyCode_Tick; break;
+            case '-': result = KeyCode_Minus; break;
+            case '=': result = KeyCode_Equal; break;
+            case '[': result = KeyCode_LeftBracket; break;
+            case ']': result = KeyCode_RightBracket; break;
+            case ';': result = KeyCode_Semicolon; break;
+            case '\'': result = KeyCode_Quote; break;
+            case ',': result = KeyCode_Comma; break;
+            case '.': result = KeyCode_Period; break;
+            case '/': result = KeyCode_ForwardSlash; break;
+            case '\\': result = KeyCode_BackwardSlash; break;
+        }
+    }
+    
+    return(result);
+}
+
+function Key_Code
+mac_keycode_from_event(NSEvent *event){
+    u16 event_key_code = [event keyCode];
+    Key_Code result = keycode_lookup_table[(u8)event_key_code];
+    
+    if (mac_vars.key_mode == KeyMode_LanguageArranged){
+        NSString *characters = [event charactersIgnoringModifiers];
+        if ([characters length] > 0){
+            Key_Code layout_key = mac_keycode_from_layout_character([characters characterAtIndex:0]);
+            if (layout_key != 0){
+                result = layout_key;
+            }
+        }
+    }
+    
+    return(result);
+}
+
 function void
 mac_keycode_init(void){
     keycode_lookup_table[kVK_ANSI_A] = KeyCode_A;
@@ -1191,8 +1242,7 @@ Input_Event *event = push_input_event(&mac_vars.frame_arena, &mac_vars.input_chu
         // TODO(allen): We need to make sure we're mapping from this event's key code to the
         // universal key code value for the given key, which will be given by mapping through
         // the physical position/scan code in the standard US keyboard.
-        u16 event_key_code = [event keyCode];
-        Key_Code key = keycode_lookup_table[(u8)event_key_code];
+        Key_Code key = mac_keycode_from_event(event);
         if (down){
             if (key != 0){
                 add_modifier(mods, key);

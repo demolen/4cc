@@ -46,6 +46,7 @@ enum{
     CodeIndexNote_Type,
     CodeIndexNote_Function,
     CodeIndexNote_Macro,
+    CodeIndexNote_Constant,
     CodeIndexNote_4coderCommand,
 };
 
@@ -124,4 +125,3 @@ struct Generic_Parse_State{
 #endif
 
 // BOTTOM
-

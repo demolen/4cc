@@ -3,7 +3,7 @@
 // "choose"          - Ask 4coder to choose based on platform.
 // "default"         - Use the default keybindings 4coder has always had.
 // "mac-default"     - Use keybindings similar to those found in other Mac applications.
-mapping = "";
+mapping = "mac-default";
 
 // MODE
 // "4coder"       - The default 4coder mode that has been around since the beginning of time (2015)
@@ -86,4 +86,3 @@ default_compiler_bat = "cl";
 default_flags_bat = "-FC -GR- -EHa- -nologo -Zi";
 default_compiler_sh = "g++";
 default_flags_sh  = "-g";
-

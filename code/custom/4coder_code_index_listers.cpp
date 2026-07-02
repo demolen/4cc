@@ -45,6 +45,10 @@ CUSTOM_DOC("List all definitions in the code index and jump to one chosen by the
                     {
                         sort = string_u8_litexpr("macro");
                     }break;
+                    case CodeIndexNote_Constant:
+                    {
+                        sort = string_u8_litexpr("constant");
+                    }break;
                 }
                 lister_add_item(lister, note->text, sort, jump, 0);
             }
@@ -96,4 +100,3 @@ CUSTOM_DOC("Jump to the first definition in the code index matching an identifie
 }
 
 // BOTTOM
-

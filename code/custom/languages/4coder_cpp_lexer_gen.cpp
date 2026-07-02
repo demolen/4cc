@@ -222,6 +222,9 @@ build_language_model(void){
     sm_key("Export");
     sm_key("Inline");
     sm_key("Static");
+    sm_key("Internal", "internal");
+    sm_key("LocalPersist", "local_persist");
+    sm_key("GlobalVariable", "global_variable");
     sm_key("Virtual");
     sm_key("AlignAs");
     sm_key("Explicit");
@@ -1190,4 +1193,3 @@ build_language_model(void){
 }
 
 // BOTTOM
-
