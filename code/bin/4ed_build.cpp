@@ -327,7 +327,7 @@ build(Arena *arena, u32 flags, u32 arch, char *code_path, char **code_files, cha
     
     switch (arch){
         case Arch_X64:
-        fm_add_to_line(line, "-m64");
+        fm_add_to_line(line, "-arch x86_64");
         fm_add_to_line(line, "-DFTECH_64_BIT"); break;
         
         case Arch_X86:
@@ -423,7 +423,7 @@ build(Arena *arena, u32 flags, u32 arch, char *code_path, char **code_files, cha
     
     switch (arch){
         case Arch_X64:
-        fm_add_to_line(line, "-m64");
+        fm_add_to_line(line, "-arch x86_64");
         fm_add_to_line(line, "-DFTECH_64_BIT"); break;
         
         case Arch_X86:
@@ -570,7 +570,11 @@ int main(int argc, char **argv){
 #elif ARCH_X64
     u32 arch = Arch_X64;
 #elif ARCH_ARM64
+# if OS_MAC
+    u32 arch = Arch_X64;
+# else
     u32 arch = Arch_arm64;
+# endif
 #endif
 
 #if defined(DEV_BUILD)

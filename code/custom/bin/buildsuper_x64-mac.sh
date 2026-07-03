@@ -16,7 +16,7 @@ fi
 
 # NOTE(yuval): Removed -Wno-writable-strings as it is the same as -Wno-write-strings
 opts="-Wno-write-strings -Wno-null-dereference -Wno-comment -Wno-switch -Wno-missing-declarations -Wno-logical-op-parentheses -g -DOS_MAC=1 -DOS_WINDOWS=0 -DOS_LINUX=0"
-arch=-m64
+arch="-arch x86_64"
 
 debug=-g
 

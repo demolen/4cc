@@ -2061,7 +2061,20 @@ CUSTOM_DOC("Advances forward through the undo history in the buffer containing t
 CUSTOM_COMMAND_SIG(open_in_other)
 CUSTOM_DOC("Interactively opens a file in the other panel.")
 {
-    change_active_panel_send_command(app, interactive_open_or_new);
+    View_ID active_view = get_active_view(app, Access_Always);
+    View_ID target_view = get_next_view_looped_primary_panels(app, active_view, Access_Always);
+    if (target_view == active_view){
+        target_view = open_view(app, active_view, ViewSplit_Right);
+        if (target_view != 0){
+            new_view_settings(app, target_view);
+            Buffer_ID buffer = view_get_buffer(app, active_view, Access_Always);
+            view_set_buffer(app, target_view, buffer, 0);
+        }
+    }
+    if (target_view != 0){
+        view_set_active(app, target_view);
+        view_enqueue_command_function(app, target_view, interactive_open_or_new);
+    }
 }
 
 CUSTOM_COMMAND_SIG(default_file_externally_modified)
@@ -2078,4 +2091,3 @@ CUSTOM_DOC("Notes the external modification of attached files by printing a mess
 }
 
 // BOTTOM
-
