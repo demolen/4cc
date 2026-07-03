@@ -465,7 +465,9 @@ else if (token->kind == TokenBaseKind_Keyword){
 String_Const_u8 lexeme = string_substring(state->contents, Ii64(token));
 if (string_match(lexeme, string_u8_litexpr("struct")) ||
     string_match(lexeme, string_u8_litexpr("union"))){
-break;
+generic_parse_inc(state);
+generic_parse_skip_soft_tokens(index, state);
+did_advance = true;
 }
 }
 if (!did_advance){
