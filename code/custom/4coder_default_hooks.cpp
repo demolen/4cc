@@ -4,6 +4,53 @@
 
 // TOP
 
+function b32
+startup_path_is_absolute(String_Const_u8 path){
+    b32 result = false;
+    if (path.size > 0){
+        result = character_is_slash(path.str[0]);
+        if (!result && path.size >= 3){
+            result = (character_is_alpha(path.str[0]) &&
+                      path.str[1] == ':' &&
+                      character_is_slash(path.str[2]));
+        }
+    }
+    return(result);
+}
+
+function String_Const_u8
+push_startup_path(Application_Links *app, Arena *arena, String_Const_u8 path){
+    String_Const_u8 result = path;
+    if (!startup_path_is_absolute(path)){
+        String_Const_u8 hot = push_hot_directory(app, arena);
+        result = push_u8_stringf(arena, "%.*s/%.*s",
+                                 string_expand(hot),
+                                 string_expand(path));
+    }
+    return(result);
+}
+
+function b32
+load_project_from_startup_paths(Application_Links *app, String_Const_u8_Array file_names){
+    b32 result = false;
+    Scratch_Block scratch(app);
+    for (i32 i = 0; i < file_names.count; i += 1){
+        Temp_Memory_Block temp(scratch);
+        String_Const_u8 path = push_startup_path(app, scratch, file_names.vals[i]);
+        if (file_exists_and_is_folder(app, path)){
+            String_Const_u8 project_path = push_file_search_up_path(app, scratch, path,
+                                                                    string_u8_litexpr("project.4coder"));
+            if (project_path.size > 0){
+                set_hot_directory(app, path);
+                load_project(app);
+                result = true;
+                break;
+            }
+        }
+    }
+    return(result);
+}
+
 CUSTOM_COMMAND_SIG(default_startup)
 CUSTOM_DOC("Default command for responding to a startup event")
 {
@@ -15,7 +62,8 @@ CUSTOM_DOC("Default command for responding to a startup event")
         default_4coder_initialize(app, file_names);
         default_4coder_side_by_side_panels(app, file_names);
         b32 auto_load = def_get_config_b32(vars_save_string_lit("automatically_load_project"));
-        if (auto_load){
+        b32 loaded_project = load_project_from_startup_paths(app, file_names);
+        if (!loaded_project && auto_load){
             load_project(app);
         }
     }
