@@ -347,6 +347,19 @@ if (token == 0 || token->kind != TokenBaseKind_ScopeOpen){
 return;
 }
 
+Code_Index_Nest *nest = push_array_zero(state->arena, Code_Index_Nest, 1);
+nest->kind = CodeIndexNest_Scope;
+nest->open = Ii64(token);
+nest->close = Ii64(max_i64);
+nest->file = index;
+nest->parent = parent;
+if (parent != 0){
+code_index_push_nest(&parent->nest_list, nest);
+}
+else{
+code_index_push_nest(&index->nest_list, nest);
+}
+
 generic_parse_inc(state);
 b32 expect_member = true;
 i32 paren_nest_level = 0;
@@ -358,6 +371,8 @@ break;
 }
 
 if (token->kind == TokenBaseKind_ScopeClose){
+nest->is_closed = true;
+nest->close = Ii64(token);
 generic_parse_inc(state);
 break;
 }
@@ -383,6 +398,8 @@ expect_member = true;
 
 generic_parse_inc(state);
 }
+
+nest->nest_array = code_index_nest_ptr_array_from_list(state->arena, &nest->nest_list);
 }
 
 function void
