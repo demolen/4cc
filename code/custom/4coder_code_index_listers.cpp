@@ -9,6 +9,20 @@ struct Tiny_Jump{
     i64 pos;
 };
 
+function View_ID
+get_or_open_other_panel(Application_Links *app, View_ID active_view){
+    View_ID target_view = get_next_view_looped_primary_panels(app, active_view, Access_Always);
+    if (target_view == active_view){
+        target_view = open_view(app, active_view, ViewSplit_Right);
+        if (target_view != 0){
+            new_view_settings(app, target_view);
+            Buffer_ID buffer = view_get_buffer(app, active_view, Access_Always);
+            view_set_buffer(app, target_view, buffer, 0);
+        }
+    }
+    return(target_view);
+}
+
 CUSTOM_UI_COMMAND_SIG(jump_to_definition)
 CUSTOM_DOC("List all definitions in the code index and jump to one chosen by the user.")
 {
@@ -69,6 +83,31 @@ CUSTOM_DOC("List all definitions in the code index and jump to one chosen by the
     }
 }
 
+function b32
+jump_to_definition_at_cursor__inner(Application_Links *app, View_ID view, String_Const_u8 query){
+    b32 result = false;
+    code_index_lock();
+    for (Buffer_ID buffer = get_buffer_next(app, 0, Access_Always);
+         buffer != 0;
+         buffer = get_buffer_next(app, buffer, Access_Always)){
+        Code_Index_File *file = code_index_get_file(buffer);
+        if (file != 0){
+            for (i32 i = 0; i < file->note_array.count; i += 1){
+                Code_Index_Note *note = file->note_array.ptrs[i];
+                if (string_match(note->text, query)){
+                    point_stack_push_view_cursor(app, view);
+                    jump_to_location(app, view, buffer, note->pos.first);
+                    result = true;
+                    goto done;
+                }
+            }
+        }
+    }
+    done:;
+    code_index_unlock();
+    return(result);
+}
+
 CUSTOM_UI_COMMAND_SIG(jump_to_definition_at_cursor)
 CUSTOM_DOC("Jump to the first definition in the code index matching an identifier at the cursor")
 {
@@ -77,25 +116,22 @@ CUSTOM_DOC("Jump to the first definition in the code index matching an identifie
     if (view != 0){
         Scratch_Block scratch(app);
         String_Const_u8 query = push_token_or_word_under_active_cursor(app, scratch);
-        
-        code_index_lock();
-        for (Buffer_ID buffer = get_buffer_next(app, 0, Access_Always);
-             buffer != 0;
-             buffer = get_buffer_next(app, buffer, Access_Always)){
-            Code_Index_File *file = code_index_get_file(buffer);
-            if (file != 0){
-                for (i32 i = 0; i < file->note_array.count; i += 1){
-                    Code_Index_Note *note = file->note_array.ptrs[i];
-                    if (string_match(note->text, query)){
-                        point_stack_push_view_cursor(app, view);
-                        jump_to_location(app, view, buffer, note->pos.first);
-                        goto done;
-                    }
-                }
-            }
+        jump_to_definition_at_cursor__inner(app, view, query);
+    }
+}
+
+CUSTOM_UI_COMMAND_SIG(jump_to_definition_at_cursor_other_panel)
+CUSTOM_DOC("Jump to the first definition in the code index matching an identifier at the cursor in the other panel.")
+{
+    View_ID active_view = get_active_view(app, Access_Visible);
+
+    if (active_view != 0){
+        Scratch_Block scratch(app);
+        String_Const_u8 query = push_token_or_word_under_active_cursor(app, scratch);
+        View_ID target_view = get_or_open_other_panel(app, active_view);
+        if (target_view != 0){
+            jump_to_definition_at_cursor__inner(app, target_view, query);
         }
-        done:;
-        code_index_unlock();
     }
 }
 
