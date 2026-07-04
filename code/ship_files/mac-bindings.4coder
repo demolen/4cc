@@ -136,4 +136,5 @@ keys_code = {
     { "open_matching_file_cpp",     "2", "Control" },
     { "write_zero_struct",          "0", "Command" },
     { "jump_to_definition_at_cursor", "W", "Command" },
+    { "jump_to_definition_at_cursor_other_panel", "W", "Command", "Shift" },
 };
