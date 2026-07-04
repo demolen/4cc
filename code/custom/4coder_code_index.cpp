@@ -435,6 +435,9 @@ cpp_parse_enum_body(index, state, parent);
 }
 }
 
+function Code_Index_Nest*
+generic_parse_scope(Code_Index_File *index, Generic_Parse_State *state);
+
 function void
 cpp_parse_type_def(Code_Index_File *index, Generic_Parse_State *state, Code_Index_Nest *parent){
 generic_parse_inc(state);
@@ -445,7 +448,10 @@ Token *token = token_it_read(&state->it);
 if (token == 0 || state->finished){
 break;
 }
-if (token->sub_kind == TokenCppKind_Enum){
+if (token->sub_kind == TokenCppKind_Struct ||
+    token->sub_kind == TokenCppKind_Union ||
+    token->sub_kind == TokenCppKind_Enum){
+i16 structure_kind = token->sub_kind;
 generic_parse_inc(state);
 generic_parse_skip_soft_tokens(index, state);
 Token *peek = token_it_read(&state->it);
@@ -455,7 +461,19 @@ generic_parse_skip_soft_tokens(index, state);
 peek = token_it_read(&state->it);
 }
 if (peek != 0 && peek->kind == TokenBaseKind_ScopeOpen){
+if (structure_kind == TokenCppKind_Enum){
 cpp_parse_enum_body(index, state, parent);
+}
+else{
+Code_Index_Nest *nest = generic_parse_scope(index, state);
+nest->parent = parent;
+if (parent != 0){
+code_index_push_nest(&parent->nest_list, nest);
+}
+else{
+code_index_push_nest(&index->nest_list, nest);
+}
+}
 }
 did_advance = true;
 }
