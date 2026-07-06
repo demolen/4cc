@@ -348,7 +348,6 @@ os_popup_error(char *title, char *message){
 #if defined(FRED_INTERNAL)
 function inline void
 mac_profile(char *name, u64 begin, u64 end){
-    printf("%s Time: %fs\n", name, ((end - begin) / 1000000.0f));
 }
 
 #define MacProfileScope(name) for (u64 glue(_i_, __LINE__) = 0, glue(_begin_, __LINE__) = system_now_time();\
@@ -762,6 +761,10 @@ mac_toggle_fullscreen(void){
 }
 
 - (void)updateLayer{
+    if (mac_to_object(mac_vars.global_frame_mutex) == 0 || renderer == 0){
+        return;
+    }
+
     u64 prev_timer_start;
 
     MacProfileScope("Draw Rect"){
@@ -960,7 +963,6 @@ mac_toggle_fullscreen(void){
 
     mac_profile("Frame", prev_timer_start, mac_vars.timer_start);
 #if FRED_INTERNAL
-    printf("\n");
 #endif
 }
 
@@ -1493,7 +1495,6 @@ main(int arg_count, char **args){
 
         // NOTE(yuval): Display window and view
         [content_view addSubview:mac_vars.view];
-        [mac_vars.window makeKeyAndOrderFront:nil];
 
         // NOTE(yuval): Initialize the renderer
         renderer = mac_init_renderer(MacRenderer_Metal, mac_vars.window, &target);
@@ -1561,6 +1562,8 @@ main(int arg_count, char **args){
         mac_vars.global_frame_mutex = system_mutex_make();
 
         mac_vars.timer_start = system_now_time();
+
+        [mac_vars.window makeKeyAndOrderFront:nil];
 
         // NOTE(yuval): Start the app's run loop
         [NSApp run];

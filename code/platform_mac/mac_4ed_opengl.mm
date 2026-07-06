@@ -125,7 +125,6 @@ struct Mac_OpenGL{
 function
 mac_render_sig(mac_gl__render){
 #if defined(FRED_INTERNAL)
-    printf("Redering using OpenGL!\n");
 #endif
     
     Mac_OpenGL *gl = (Mac_OpenGL*)renderer;

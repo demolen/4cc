@@ -2,14 +2,27 @@
 // NOTE(allen): Default Mixer Helpers
 
 // TODO(allen): intrinsics wrappers
-#if OS_LINUX
+#if OS_LINUX && (ARCH_X86 || ARCH_X64)
 #include <immintrin.h>
 #define _InterlockedExchangeAdd __sync_fetch_and_add
-#elif OS_MAC
+#elif OS_MAC && (ARCH_X86 || ARCH_X64)
 #include <immintrin.h>
 #define _InterlockedExchangeAdd __sync_fetch_and_add
+#elif ARCH_ARM64
+#define _InterlockedExchangeAdd __sync_fetch_and_add
+function void
+def_audio_pause_cpu(void){
+    __builtin_arm_yield();
+}
 #else
 #include <intrin.h>
+#endif
+
+#if !ARCH_ARM64
+function void
+def_audio_pause_cpu(void){
+    _mm_pause();
+}
 #endif
 
 function u32
@@ -24,7 +37,7 @@ function void
 def_audio_begin_ticket_mutex(Audio_System *Crunky)
 {
  u32 Ticket = AtomicAddU32AndReturnOriginal(&Crunky->ticket, 1);
- while(Ticket != Crunky->serving) {_mm_pause();}
+ while(Ticket != Crunky->serving) {def_audio_pause_cpu();}
 }
 
 function void

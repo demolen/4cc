@@ -412,6 +412,9 @@ FOREIGN "/x64/libfreetype-mac.a"
 # define CLANG_LIBS_X86 CLANG_LIBS_COMMON \
 FOREIGN "/x86/libfreetype-mac.a"
 
+# define CLANG_LIBS_ARM64 CLANG_LIBS_COMMON \
+"/opt/homebrew/opt/freetype/lib/libfreetype.dylib"
+
 #else
 # error clang options not set for this platform
 #endif
@@ -430,6 +433,10 @@ build(Arena *arena, u32 flags, u32 arch, char *code_path, char **code_files, cha
         fm_add_to_line(line, "-m32");
         fm_add_to_line(line, "-DFTECH_32_BIT"); break;
         
+        case Arch_arm64:
+        fm_add_to_line(line, "-arch arm64");
+        fm_add_to_line(line, "-DFTECH_64_BIT"); break;
+
         default: InvalidPath;
     }
     
@@ -438,6 +445,9 @@ build(Arena *arena, u32 flags, u32 arch, char *code_path, char **code_files, cha
     }
     
     fm_add_to_line(line, "-I%s", code_path);
+    if (arch == Arch_arm64){
+        fm_add_to_line(line, "-I/opt/homebrew/opt/freetype/include/freetype2");
+    }
     if (inc_folders != 0){
         for (u32 i = 0; inc_folders[i] != 0; ++i){
             char *str = fm_str(arena, code_path, "/", inc_folders[i]);
@@ -476,6 +486,10 @@ build(Arena *arena, u32 flags, u32 arch, char *code_path, char **code_files, cha
         else if (arch == Arch_X86)
         {
             fm_add_to_line(line, CLANG_LIBS_X86);
+        }
+        else if (arch == Arch_arm64)
+        {
+            fm_add_to_line(line, CLANG_LIBS_ARM64);
         }
     }
     
@@ -570,11 +584,7 @@ int main(int argc, char **argv){
 #elif ARCH_X64
     u32 arch = Arch_X64;
 #elif ARCH_ARM64
-# if OS_MAC
-    u32 arch = Arch_X64;
-# else
     u32 arch = Arch_arm64;
-# endif
 #endif
 
 #if defined(DEV_BUILD)
